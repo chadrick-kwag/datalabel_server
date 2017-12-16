@@ -6,14 +6,47 @@ var path = require('path');
 var multer = require('multer');
 var storage = multer.diskStorage({
     destination: function(req, file, cb) {
-        console.log("here is file info: ",file)
-        console.log("print req.body from multer storage function:",req.body);
-        cb(null, 'uploads');
+        console.log("here is file info: ", file)
+        console.log("print req.body from multer storage function:", req.body);
+
+        userid = req.body.userid
+        dsid = req.body.dsid
+
+        BASEDEST='uploads'
+        finedest = BASEDEST+"/"+dsid
+
+        console.log("finedest =",finedest)
+
+        // check if dir exists
+        dirpath = path.join(__dirname,finedest)
+        fs.stat(dirpath,function(err,status){
+            if(err){
+                console.log("dir doesn't exist")
+                fs.mkdir(dirpath,function(err){
+                    if(err){
+                        console.log("error occured when making dir")
+                    }
+                    else{
+                        console.log("mkdir success")
+                        cb(null,finedest)
+                    }
+                })
+            }
+            // assume that dir exists
+            console.log("dir exists")
+            cb(null,finedest)
+
+        })
+
+
+        // cb(null, finedest);
     },
     filename: function(req, file, cb) {
+        // add this to mongodb... what format?
         cb(null, file.originalname);
     }
 });
+var jwt = require('jsonwebtoken')
 var upload = multer({ storage: storage });
 
 
@@ -36,6 +69,8 @@ MongoClient.connect(mongourl, function(err, db) {
 
 
 });
+
+var JWT_SECRET_KEY = "CHADRICK"
 
 
 
@@ -65,6 +100,9 @@ app.post('/dslist', function(req, res) {
     });
 
 });
+
+
+
 
 
 app.get('/download/dszip', function(req, res) {
@@ -151,30 +189,23 @@ app.get('/thumbnail', function(req, res) {
             res.status(512);
             res.send("thumbnail file query failed");
         } else {
-            tnpath = "/thumbnail/"+result[0].thumbnailfile
+            tnpath = "/thumbnail/" + result[0].thumbnailfile
             tnpath = path.join(__dirname, tnpath);
             console.log("fetched thumbnail image path=", tnpath);
 
-            fs.access(tnpath, (err)=>{
-                if(err){
-                    console.log("error fetching ",tnpath)
+            fs.access(tnpath, (err) => {
+                if (err) {
+                    console.log("error fetching ", tnpath)
                     res.status(512)
                     res.send("thumbnail file not found")
-                }
-                else{
+                } else {
                     var stat = fs.statSync(tnpath)
                     res.writeHead(200, { 'Content-Length': stat.size })
                     var readstream = fs.createReadStream(tnpath);
                     readstream.pipe(res);
                 }
             })
-
-
-
         }
-
-
-
 
     });
 });
@@ -192,7 +223,7 @@ app.get('/thumbnail', function(req, res) {
 app.post('/upload/labelzip', upload.single('labelzip'), function(req, res, next) {
     console.log(req.file.filename + " received");
 
-    req.file.destination = path.join(__dirname,"/tempupload")
+    req.file.destination = path.join(__dirname, "/tempupload")
     console.log("changed file destination in app.post")
 
     res.setHeader('Content-Type', 'application/json');
@@ -231,15 +262,40 @@ app.post('/tokensignin', function(req, res) {
 
                 addnewuser(useremail);
 
+
+
+
+
                 res.send("{'userverified':false}");
 
             } else if (queryresult.length > 1) {
                 console.log("user query result >1. something is weird");
                 /// this is internal error. but since the user is registered anyway, allow the user to login.
+
+
                 res.send("{'userverified':true}");
             } else {
                 console.log("user exists");
-                res.send("{'userverified':true}");
+                result = docs[0];
+                console.log("fetched userid=", result['_id'], " second versionww");
+
+                jwt.sign({ 'userid': result['_id'], 'user_mail':useremail }, JWT_SECRET_KEY, function(err, token) {
+                    if (err) {
+                        respjson = {}
+                        respjson['userverified']=true
+                        respjson['jwt']=''
+                        res.send(JSON.stringify(respjson))
+                    } else {
+                        console.log("jwt created:",token)
+                        respjson = {}
+                        respjson['userverified']=true
+                        respjson['jwt']=token
+                        res.send(JSON.stringify(respjson));
+                    }
+                })
+
+
+                
             }
 
         });
@@ -254,13 +310,13 @@ app.post('/dsinfo', function(req, res) {
     console.log("dsinfo request received");
     var id = req.body.id;
     var reqfields = req.body.reqfield;
-    console.log("id=", id,"reqfield=",reqfields);
+    console.log("id=", id, "reqfield=", reqfields);
 
     filterobj = new Object();
-    for(i=0;i<reqfields.length;i++){
-        filterobj[reqfields[i]]=1
+    for (i = 0; i < reqfields.length; i++) {
+        filterobj[reqfields[i]] = 1
     }
-    
+
 
 
     mongodb.collection('datasets').find({ 'id': id }, filterobj).toArray(function(err, result) {
@@ -279,7 +335,7 @@ app.post('/dsinfo', function(req, res) {
 
         } else {
             console.log("correct case");
-            console.log("fetched result=",result[0])
+            console.log("fetched result=", result[0])
             var respobj = new Object();
             respobj.success = true;
             respobj.description = result[0].description;
